@@ -5,9 +5,9 @@ import numpy as np
 
 try:
     from soccer_visualizer import SoccerVisualizer
-    _VIZ_AVAILABLE = True
 except ImportError:
-    _VIZ_AVAILABLE = False
+    pass
+_VIZ_AVAILABLE = True
 
 
 # ---------------------------------------------------------------------------
@@ -396,18 +396,43 @@ class StudentController:
         bx, by = self.ball_world
         gx, gy = TARGET_GOAL
 
-        # Direction from goal to ball (= direction robot should approach from)
-        dx = bx - gx
-        dy = by - gy
+        # Unit vector from goal toward ball (direction robot must approach from)
+        dx, dy = bx - gx, by - gy
         norm = math.sqrt(dx*dx + dy*dy)
         if norm < 0.01:
             norm = 0.01
+        ux, uy = dx / norm, dy / norm
 
-        # Behind-ball position: 0.38 m behind ball away from goal
+        # Behind-ball position: 0.38 m behind ball, away from goal
         BEHIND_DIST = 0.38
-        target_x = bx + BEHIND_DIST * dx / norm
-        target_y = by + BEHIND_DIST * dy / norm
+        target_x = max(-4.3, min(4.3, bx + BEHIND_DIST * ux))
+        target_y = max(-2.8, min(2.8, by + BEHIND_DIST * uy))
 
+        x, y, theta = self.mu
+
+        # Check if robot is on the goal-side of the ball (wrong side).
+        # dot > 0 means the robot-to-ball vector points the same way as
+        # ball-to-goal, i.e. robot is between ball and target goal.
+        brx, bry = x - bx, y - by
+        dot_goal_side = brx * (-ux) + bry * (-uy)
+
+        if dot_goal_side > 0.1:
+            # Robot is on the wrong side — detour laterally around the ball.
+            # Perpendicular to ball-goal axis (CCW rotation of approach vector).
+            perp_x, perp_y = -uy, ux
+
+            # Pick the side the robot is already on to minimise travel distance.
+            if brx * perp_x + bry * perp_y < 0:
+                perp_x, perp_y = -perp_x, -perp_y
+
+            # Waypoint: 0.8 m lateral from ball + 0.3 m back (away from goal)
+            wp_x = max(-4.3, min(4.3, bx + 0.8 * perp_x + 0.3 * ux))
+            wp_y = max(-2.8, min(2.8, by + 0.8 * perp_y + 0.3 * uy))
+
+            lv, rv, _ = self._drive_to(wp_x, wp_y, stop_dist=0.2)
+            return lv, rv
+
+        # Robot is on correct side — drive to behind-ball position.
         lv, rv, arrived = self._drive_to(target_x, target_y, stop_dist=0.12)
 
         if arrived:
